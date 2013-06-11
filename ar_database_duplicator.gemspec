@@ -29,6 +29,7 @@ Gem::Specification.new do |spec|
   spec.add_runtime_dependency "pseudo_entity", ">= 0.0.4"
   spec.add_runtime_dependency "ruby-progressbar", "~> 1.0"
   spec.add_runtime_dependency "activerecord", ">= 2.3"
+  spec.add_runtime_dependency "sqlite3"
 
 
 end

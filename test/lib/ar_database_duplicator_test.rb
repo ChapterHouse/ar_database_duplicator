@@ -1,4 +1,5 @@
 require File.dirname(__FILE__) + "/../test_helper"
+require 'fileutils'
 #require 'ar_database_duplicator'
 #
 class TestClass < ActiveRecord::Base
@@ -13,15 +14,27 @@ class TestClass < ActiveRecord::Base
 
 end
 
+
+class Rails
+  def self.root
+    Pathname.new(__FILE__).parent.parent
+  end
+end unless Object.const_defined?(:Rails)
+
+
 class ARDatabaseDuplicatorTest < Test::Unit::TestCase
   context "instance" do
 
     context "public methods" do
 
       setup do
-        @db = ARDatabaseDuplicator.new()
-        @db.stubs(:use_spec)
+        @db = ARDatabaseDuplicator.new(:source => "test_source", :destination => "test_destination")
+        #@db.stubs(:use_spec)
         ARDatabaseDuplicator.send(:public, :destination_directory_exists?)
+      end
+
+      teardown do
+        remove_duplications
       end
 
       should "call use_connection in use_source" do
@@ -106,8 +119,11 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
 
       setup do
         #@db = ARDatabaseDuplicator.new(:schema_file => Rails.root + 'test/fixtures/files/sample_schema.rb')
-        @db = ARDatabaseDuplicator.new(:schema_file => 'test/fixtures/files/sample_schema.rb')
-        @db.stubs(:use_spec)
+        @db = ARDatabaseDuplicator.new(:schema_file => "db/sample_schema.rb", :source => "test_source", :destination => "test_destination")
+
+
+        #@db = ARDatabaseDuplicator.new(:schema_file => 'test/fixtures/files/sample_schema.rb')
+        #@db.stubs(:use_spec)
         ARDatabaseDuplicator.send(:public, :destination_directory)
         ARDatabaseDuplicator.send(:public, :load_schema_combined)
         ARDatabaseDuplicator.send(:public, :load_schema_split)
@@ -127,6 +143,10 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
         ARDatabaseDuplicator.send(:public, :base_path)
       end
 
+      teardown do
+        remove_duplications
+      end
+
       context "#destination_directory" do
 
         should "use only the base_path if split_data is false" do
@@ -142,12 +162,39 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
       end
 
       context "#load_schema_combined" do
-        should "do something" do
+
+        setup do
           @db.load_schema_combined
         end
+
+        should "migrate the schema" do
+          @db.with_destination do
+            @db.define_class('SchemaMigration')
+            assert SchemaMigration.table_exists?, "SchemaMigration table does not exist"
+            assert_operator SchemaMigration.count, :>, 0
+          end
+        end
+
+        should "create the table schema" do
+          @db.with_destination do
+            @db.define_class('TableSchema')
+            assert TableSchema.table_exists?, "TableSchema table does not exist"
+            assert_operator TableSchema.count, :>, 0
+          end
+        end
+
+        should "store the schema for each table" do
+          @db.with_destination do
+            captured_schema = ARDatabaseDuplicator::CapturedSchema.new(@db, @db.schema_file)
+            captured_schema.table_names.each do |table_name|
+              table_schema = TableSchema.find(:first, :conditions => {:table_name => table_name})
+              assert table_schema, "Missing table schema for #{table_name}"
+              assert_equal captured_schema.schema_for(table_name), table_schema.schema
+            end
+          end
+        end
+
       end
-
-
     end
 
 

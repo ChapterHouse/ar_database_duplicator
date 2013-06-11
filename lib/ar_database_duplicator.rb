@@ -244,6 +244,18 @@ class ARDatabaseDuplicator
     with_connection(destination, subname, silent_change, &block)
   end
 
+  # With a specified connection, connect, execute a block, then restore the connection to it's previous state (if any).
+  def with_connection(name, subname=nil, silent_change=false, &block)
+    old_connection = connection
+    begin
+      use_connection(name, subname, silent_change)
+      result = yield
+    ensure
+      use_spec(old_connection)
+    end
+    result
+  end
+
   def self.instance(options={})
     options[:source] ||= 'development'
     options[:destination] ||= 'dev_data'
@@ -261,8 +273,7 @@ class ARDatabaseDuplicator
   private
 
   def base_path
-    #@base_path ||= Rails.root + "db" + "duplication"
-    @base_path ||=  Pathname.new("db") + "duplication"
+    @base_path ||= Rails.root + "db" + "duplication"
   end
 
   def destination_directory_exists?
@@ -310,23 +321,23 @@ class ARDatabaseDuplicator
       # sqlite3 handles index names at the database level and not at the table level.
       # This can cause issues with adding indexes. Since we wont be depending on them anyway
       # we will just stub this out so we can load the schema without issues.
-      schema_klass = ActiveRecord::Schema
-
-      def schema_klass.add_index(*args)
-        say_with_time "add_index(#{args.map(&:inspect).join(', ')})" do
-          say "skipped", :subitem
-        end
-      end
+      #schema_klass = ActiveRecord::Schema
+      #
+      #def schema_klass.add_index(*args)
+      #  say_with_time "add_index(#{args.map(&:inspect).join(', ')})" do
+      #    say "skipped", :subitem
+      #  end
+      #end
       load schema_file
 
       ActiveRecord::Schema.define(:version => captured_schema.assume_migrated_upto_version_args.first) do
-        create_table "duplicated_schema", :force => true do |t|
+        create_table "table_schemas", :force => true do |t|
           t.string "table_name"
-          t.string "schema"
+          t.text "schema"
         end
       end
-      captured_schema.tables.each do |table_name|
-        DuplicatedSchema.create(:table_name => table_name, :schema => captured_schema.schema_for(table_name))
+      captured_schema.table_names.each do |table_name|
+        TableSchema.create(:table_name => table_name, :schema => captured_schema.schema_for(table_name))
       end
     else
       inform 'Skipping schema load. Schema already loaded.'
@@ -349,12 +360,12 @@ class ARDatabaseDuplicator
             block = command.pop
             self.send(*command, &block)
           end
-          create_table "duplicated_schema", :force => true do |t|
+          create_table "table_schemas", :force => true do |t|
             t.string "table_name"
-            t.string "schema"
+            t.text "schema"
           end
         end
-        DuplicatedSchema.create(:table_name => table_name, :schema => captured_schema.schema_for(table_name))
+        TableSchema.create(:table_name => table_name, :schema => captured_schema.schema_for(table_name))
       end
     end
 
@@ -567,7 +578,6 @@ class ARDatabaseDuplicator
     else
       while_silent { use_destination(subname) }
       define_class('SchemaMigration')
-      puts "#{SchemaMigration.table_exists?} && #{SchemaMigration.count > 0}"
       SchemaMigration.table_exists? && SchemaMigration.count > 0
     end
   end
@@ -623,7 +633,7 @@ class ARDatabaseDuplicator
       end
 
       # Create the database spec
-      spec = {:adapter => 'sqlite3',:database => database, :host => 'localhost', :username => 'root'}
+      spec = {:adapter => 'sqlite3',:database => database.to_s, :host => 'localhost', :username => 'root'}
       # Set the name to something nice for display
       name = database.basename(database.extname)
     end
@@ -646,18 +656,6 @@ class ARDatabaseDuplicator
       # Remember where we are connected to so we don't do it again if it isn't necessary
       self.connection = spec
     end
-  end
-
-  # With a specified connection, connect, execute a block, then restore the connection to it's previous state (if any).
-  def with_connection(name, subname=nil, silent_change=false, &block)
-    old_connection = connection
-    begin
-      use_connection(name, subname, silent_change)
-      result = yield
-    ensure
-      use_spec(old_connection)
-    end
-    result
   end
 
 end
@@ -762,10 +760,9 @@ class ARDatabaseDuplicator::CapturedSchema
 
 
     # Now with the above interceptors/recorders in place, eval the schema capture all of the data.
-    db.while_silent do
-      # This is a safety thing. Just in case examining the schema causes a change
-      # (which it never should) we don't want to touch our source.
-      db.use_destination("schema_eval")
+    # This is a safety thing. Just in case examining the schema causes a change
+    # (which it never should) we don't want to touch our source.
+    db.with_connection("schema_eval", nil, true) do
       eval(schema)
     end
 
@@ -807,6 +804,9 @@ class ARDatabaseDuplicator::CapturedSchema
 end
 
 
-class ARDatabaseDuplicator::DuplicatedSchema < ActiveRecord::Base
-  self.table_name = "duplicated_schema"
+class ARDatabaseDuplicator::TableSchema < ActiveRecord::Base
+  #self.table_name = "table_schema"
 end
+
+
+
