@@ -1,6 +1,6 @@
-require File.dirname(__FILE__) + "/../../test_helper"
-require 'ar_database_duplicator'
-
+require File.dirname(__FILE__) + "/../test_helper"
+#require 'ar_database_duplicator'
+#
 class TestClass < ActiveRecord::Base
   COLUMN_NAMES =  ["safe", "temp_safe", "unsafe", "instance_safe", "changed"]
 
@@ -105,7 +105,8 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
     context "private methods" do
 
       setup do
-        @db = ARDatabaseDuplicator.new(:schema_file => Rails.root + 'test/fixtures/files/sample_schema.rb')
+        #@db = ARDatabaseDuplicator.new(:schema_file => Rails.root + 'test/fixtures/files/sample_schema.rb')
+        @db = ARDatabaseDuplicator.new(:schema_file => 'test/fixtures/files/sample_schema.rb')
         @db.stubs(:use_spec)
         ARDatabaseDuplicator.send(:public, :destination_directory)
         ARDatabaseDuplicator.send(:public, :load_schema_combined)

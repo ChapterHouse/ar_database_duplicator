@@ -1,5 +1,4 @@
-require "ar_database_duplicator/version"
-
+require "active_record"
 require 'pseudo_entity'
 require 'ruby-progressbar'
 require 'forwardable'
@@ -262,7 +261,8 @@ class ARDatabaseDuplicator
   private
 
   def base_path
-    @base_path ||= Rails.root + "db" + "duplication"
+    #@base_path ||= Rails.root + "db" + "duplication"
+    @base_path ||=  Pathname.new("db") + "duplication"
   end
 
   def destination_directory_exists?
