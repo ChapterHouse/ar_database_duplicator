@@ -5,6 +5,11 @@ require 'minitest/autorun'
 require 'shoulda'
 require 'mocha/setup'
 
+class Rails
+  def self.root
+    Pathname.new(__FILE__).parent
+  end
+end unless Object.const_defined?(:Rails)
 
 
 def remove_duplications

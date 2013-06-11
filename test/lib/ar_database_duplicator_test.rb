@@ -15,11 +15,6 @@ class TestClass < ActiveRecord::Base
 end
 
 
-class Rails
-  def self.root
-    Pathname.new(__FILE__).parent.parent
-  end
-end unless Object.const_defined?(:Rails)
 
 
 class ARDatabaseDuplicatorTest < Test::Unit::TestCase
@@ -28,8 +23,8 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
     context "public methods" do
 
       setup do
+        Dir.chdir(Rails.root)
         @db = ARDatabaseDuplicator.new(:source => "test_source", :destination => "test_destination")
-        #@db.stubs(:use_spec)
         ARDatabaseDuplicator.send(:public, :destination_directory_exists?)
       end
 
@@ -119,6 +114,7 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
 
       setup do
         #@db = ARDatabaseDuplicator.new(:schema_file => Rails.root + 'test/fixtures/files/sample_schema.rb')
+        Dir.chdir(Rails.root)
         @db = ARDatabaseDuplicator.new(:schema_file => "db/sample_schema.rb", :source => "test_source", :destination => "test_destination")
 
 
@@ -195,6 +191,48 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
         end
 
       end
+
+
+      context "#load_schema_split" do
+
+        setup do
+          @db.load_schema_split
+          @captured_schema = ARDatabaseDuplicator::CapturedSchema.new(@db, @db.schema_file)
+        end
+
+        should "migrate the schema" do
+          @captured_schema.table_names.each do |table_name|
+            @db.with_destination(table_name, true) do
+              @db.define_class('SchemaMigration')
+              assert SchemaMigration.table_exists?, "SchemaMigration table does not exist in #{table_name}"
+              assert_operator SchemaMigration.count, :>, 0
+            end
+          end
+        end
+
+        should "create the table schema" do
+          @db.define_class('TableSchema')
+          @captured_schema.table_names.each do |table_name|
+            @db.with_destination(table_name, true) do
+              assert TableSchema.table_exists?, "TableSchema table does not exist in #{table_name}"
+              assert_operator TableSchema.count, :>, 0
+            end
+          end
+        end
+
+        should "store the schema for each table" do
+          @captured_schema.table_names.each do |table_name|
+            @db.with_destination(table_name, true) do
+              table_schema = TableSchema.find(:first, :conditions => {:table_name => table_name})
+              assert table_schema, "Missing table schema for #{table_name}"
+              assert_equal @captured_schema.schema_for(table_name), table_schema.schema
+            end
+          end
+        end
+
+      end
+
+
     end
 
 

@@ -330,7 +330,7 @@ class ARDatabaseDuplicator
       #end
       load schema_file
 
-      ActiveRecord::Schema.define(:version => captured_schema.assume_migrated_upto_version_args.first) do
+      ActiveRecord::Schema.define(:version => captured_schema.recorded_assume_migrated[1]) do
         create_table "table_schemas", :force => true do |t|
           t.string "table_name"
           t.text "schema"
@@ -355,8 +355,10 @@ class ARDatabaseDuplicator
         no_schema_loaded = false
         use_destination(table_name)
         commands = captured_schema.table_commands_for(table_name)
-        ActiveRecord::Schema.define(:version => captured_schema.assume_migrated_upto_version_args.first) do
+
+        ActiveRecord::Schema.define(:version => captured_schema.recorded_assume_migrated[1]) do
           commands.each do |command|
+            command = command.dup
             block = command.pop
             self.send(*command, &block)
           end
@@ -364,6 +366,14 @@ class ARDatabaseDuplicator
             t.string "table_name"
             t.text "schema"
           end
+
+          command = captured_schema.recorded_initialize_schema.dup
+          block = command.pop
+          self.send(*command, &block) unless command.empty?
+
+          command = captured_schema.recorded_assume_migrated.dup
+          block = command.pop
+          self.send(*command, &block) unless command.empty?
         end
         TableSchema.create(:table_name => table_name, :schema => captured_schema.schema_for(table_name))
       end
@@ -682,8 +692,12 @@ class ARDatabaseDuplicator::CapturedSchema
     recorded_table_commands.keys
   end
 
-  def assume_migrated_upto_version_args
-    @assume_migrated_upto_version_args ||= []
+  def recorded_assume_migrated
+    @recorded_assume_migrated ||= []
+  end
+
+  def recorded_initialize_schema
+    @recorded_initialize_schema ||= []
   end
 
   private
@@ -731,14 +745,15 @@ class ARDatabaseDuplicator::CapturedSchema
     table_definition = recording_table_definition
     table_commands = recorded_table_commands
     table_columns = recorded_table_columns
-
+    assume_migrated = recorded_assume_migrated
+    initialize_schema = recorded_initialize_schema
     # This interceptor helps us learn what tables we will be defining by intercepting the important schema commands.
     # Additionally determine the final assume_migrated_upto_version arguments.
     # These will be used for each sub database created.
     # The 1.8.x style of define_singleton_method
     schema_klass_singleton = class << ActiveRecord::Schema; self; end
     schema_klass_singleton.send(:define_method, :method_missing) do |name, *arguments, &block|
-      if name == :create_table
+      if name.to_sym == :create_table
         # Pull out the table name
         table_name = arguments.first
         # Record the creation command
@@ -751,10 +766,12 @@ class ARDatabaseDuplicator::CapturedSchema
         block.call(table_definition)
         # Save off all of the column commands
         table_columns[table_name] = table_definition.column_commands
-      elsif name == :add_index
+      elsif name.to_sym == :add_index
         table_commands[arguments.first] << ([name] + arguments + [block] )
-      elsif name == :assume_migrated_upto_version
-        assume_migrated_upto_version_args = arguments
+      elsif name.to_sym == :assume_migrated_upto_version
+        assume_migrated.replace ([name] + arguments + [block] )
+      elsif name.to_sym == :initialize_schema_migrations_table
+        initialize_schema.replace ([name] + arguments + [block] )
       end
     end
 
