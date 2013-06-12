@@ -14,9 +14,6 @@ class TestClass < ActiveRecord::Base
 
 end
 
-
-
-
 class ARDatabaseDuplicatorTest < Test::Unit::TestCase
   context "instance" do
 
@@ -137,10 +134,80 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
         ARDatabaseDuplicator.send(:public, :with_connection)
 
         ARDatabaseDuplicator.send(:public, :base_path)
+        ARDatabaseDuplicator.send(:public, :entity)
       end
 
       teardown do
         remove_duplications
+      end
+
+      context "replace" do
+        setup do
+          @db.stubs(:replace_with)
+        end
+
+        should "get the replacement value from PseudoEntity if the key is a symbol" do
+          @db.entity.expects(:first_name).once
+          assert @db.expects(:replace_with).once().with(nil, "something", @db.entity.first_name)
+          @db.replace(nil, {"something" => :first_name})
+        end
+
+        should "raise an exception if the entity does not respond to the symbol" do
+          assert_raises(RuntimeError) do
+            @db.replace(nil, {"something" => :doesnt_exist})
+          end
+        end
+
+        should "replace the value" do
+
+        end
+      end
+
+      context "replace_attributes" do
+        setup do
+          @db.stubs(:replace)
+        end
+
+        should "call entity.reset! once before replace" do
+          name = @db.entity.first_name
+          other_name = name
+          @db.stubs(:replace) { other_name = @db.entity.first_name }
+          @db.replace_attributes(nil, [{:a => 1}])
+          puts name + ' ' + other_name
+          assert name != other_name
+        end
+
+        should "not call replace when replacement_hash empty" do
+          @db.expects(:replace).never()
+          @db.replace_attributes(nil, [{}])
+        end
+
+        should "yield entity when block given with arity==1" do
+          name = @db.entity.first_name
+          @db.replace_attributes(nil, []) do |x|
+            assert x.is_a?(PseudoEntity)
+            assert x.first_name != name
+          end
+        end
+
+        should "yield entity, record when block given with arity != 1" do
+          name = @db.entity.first_name
+          @db.replace_attributes("abc", []) do |x, y|
+            assert x.is_a?(PseudoEntity)
+            assert x.first_name != name
+            assert_equal "abc", y
+          end
+        end
+
+        should "call replace if block returns a hash" do
+          @db.expects(:replace).once()
+          @db.replace_attributes(nil, []) { |x| {:a => 1} }
+        end
+
+        should "not call replace if block does not return a hash" do
+          @db.expects(:replace).never()
+          @db.replace_attributes(nil, []) { |x| nil }
+        end
       end
 
       context "#destination_directory" do

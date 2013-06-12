@@ -303,7 +303,7 @@ class ARDatabaseDuplicator
 
 
   def entity
-    @entity = PseudoEntity.new
+    @entity ||= PseudoEntity.new
   end
 
   def inform(message)
