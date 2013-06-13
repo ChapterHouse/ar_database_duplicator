@@ -146,21 +146,69 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
           @db.stubs(:replace_with)
         end
 
-        should "get the replacement value from PseudoEntity if the key is a symbol" do
-          @db.entity.expects(:first_name).once
-          assert @db.expects(:replace_with).once().with(nil, "something", @db.entity.first_name)
+        should "get the replacement value from PseudoEntity if the value is a symbol" do
+          first_name = @db.entity.first_name
+          @db.entity.instance_eval <<-EOF
+            alias :first_name_original :first_name
+          EOF
+          @db.entity.expects(:first_name).once.returns(@db.entity.first_name_original)
+          assert @db.expects(:replace_with).with(nil, "something", first_name)
           @db.replace(nil, {"something" => :first_name})
         end
 
-        should "raise an exception if the entity does not respond to the symbol" do
+        should "raise an exception if the entity does not respond to the symbol value" do
           assert_raises(RuntimeError) do
             @db.replace(nil, {"something" => :doesnt_exist})
           end
         end
 
-        should "replace the value" do
-
+        should "not call on PseudoEntity if the value is not a symbol" do
+          @db.entity.expects(:first_name).never
+          assert @db.expects(:replace_with).with(nil, "something", "first_name")
+          @db.replace(nil, {"something" => "first_name"})
         end
+
+        should "call the original PseudoEntity method when encryption is asked for" do
+          first_name = @db.entity.first_name
+          @db.entity.instance_eval <<-EOF
+            alias :first_name_original :first_name
+          EOF
+          @db.entity.expects(:first_name).once.returns(@db.entity.first_name_original)
+          assert @db.expects(:replace_with).with(nil, "something", first_name.encrypt(:key => "1234"))
+          @db.replace(nil, {"something" => :encrypted_first_name})
+        end
+
+        should "set iv and salt if the target responds to them for encrypted values" do
+          @db = ARDatabaseDuplicator.new
+          first_name = @db.entity.first_name
+          object = Object.new
+          class << object
+            def first_name
+              @first_name ||= "a"
+            end
+            def first_name_salt
+              @first_name_salt ||= "a"
+            end
+            def first_name_iv
+              @first_name_iv ||= "a"
+            end
+            def first_name=(x)
+              @first_name = x
+            end
+            def first_name_salt=(x)
+              @first_name_salt = x
+            end
+            def first_name_iv=(x)
+              @first_name_iv = x
+            end
+          end
+          @db.replace(object, {:first_name => :encrypted_first_name})
+          assert_not_equal 1, object.first_name_salt, "Salt was not set"
+          assert_not_equal 1,  object.first_name_iv, "Initialization vector was not set"
+          assert_equal first_name.encrypt(:key => "1234", :iv => object.first_name_iv, :salt => object.first_name_salt), object.first_name
+        end
+
+
       end
 
       context "replace_attributes" do
@@ -171,10 +219,14 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
         should "call entity.reset! once before replace" do
           name = @db.entity.first_name
           other_name = name
-          @db.stubs(:replace) { other_name = @db.entity.first_name }
+
+          singleton_klass = class << @db; self; end
+          singleton_klass.send(:define_method, :replace) { |*args|
+            other_name = entity.first_name
+          }
+
           @db.replace_attributes(nil, [{:a => 1}])
-          puts name + ' ' + other_name
-          assert name != other_name
+          assert name != other_name, "entity.reset! was not called before replace"
         end
 
         should "not call replace when replacement_hash empty" do

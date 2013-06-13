@@ -2,6 +2,7 @@ require "active_record"
 require 'pseudo_entity'
 require 'ruby-progressbar'
 require 'forwardable'
+require 'encryptor'
 
 module ActiveRecord
 
@@ -435,23 +436,23 @@ class ARDatabaseDuplicator
         salt_method = "#{key}_salt".to_sym
         iv_method = "#{key}_iv".to_sym
         # If the record has an existing salt then replace it
-        if target.respond_to?(salt_method) && target.send(salt_method)
+        if target.respond_to?(salt_method) && !target.send(salt_method).blank?
+          salt = entity.reset('salt')
           replace_with(target, salt_method, salt)
-          pepper = salt
         else
-          pepper = nil
+          salt = nil
         end
 
         # If the record has an existing iv then replace it
-        if target.respond_to?(iv_method) && target.send(iv_method)
+        if target.respond_to?(iv_method) && !target.send(iv_method).blank?
+          iv = entity.reset('iv')
           replace_with(target, iv_method, iv)
-          ivy = iv
         else
-          ivy = nil
+          iv = nil
         end
 
         # Use the same combination as I use on my luggage. No one will ever guess that.
-        value = value.encrypt(:key => "1234", :salt => pepper, :iv => ivy)
+        value = value.encrypt(:key => "1234", :salt => salt, :iv => iv)
       end
       replace_with target, key, value
     end
@@ -474,6 +475,10 @@ class ARDatabaseDuplicator
     end
     target.send("#{key}=", value) unless target.send(key).blank?
     target.vet_attribute(key) if target.respond_to?(:vet_attribute)
+  end
+
+  def salt
+    entity.class.new.salt
   end
 
 
