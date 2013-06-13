@@ -1,7 +1,6 @@
 require File.dirname(__FILE__) + "/../test_helper"
 require 'fileutils'
-#require 'ar_database_duplicator'
-#
+
 class TestClass < ActiveRecord::Base
   COLUMN_NAMES =  ["safe", "temp_safe", "unsafe", "instance_safe", "changed"]
 
@@ -110,13 +109,10 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
     context "private methods" do
 
       setup do
-        #@db = ARDatabaseDuplicator.new(:schema_file => Rails.root + 'test/fixtures/files/sample_schema.rb')
         Dir.chdir(Rails.root)
         @db = ARDatabaseDuplicator.new(:schema_file => "db/sample_schema.rb", :source => "test_source", :destination => "test_destination")
+        @db.silent=true
 
-
-        #@db = ARDatabaseDuplicator.new(:schema_file => 'test/fixtures/files/sample_schema.rb')
-        #@db.stubs(:use_spec)
         ARDatabaseDuplicator.send(:public, :destination_directory)
         ARDatabaseDuplicator.send(:public, :load_schema_combined)
         ARDatabaseDuplicator.send(:public, :load_schema_split)
@@ -125,10 +121,10 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
         ARDatabaseDuplicator.send(:public, :replace_with)
         ARDatabaseDuplicator.send(:public, :set_temporary_vetted_attributes)
         ARDatabaseDuplicator.send(:public, :transfer)
-        ARDatabaseDuplicator.send(:public, :already_duplicated?)
-        ARDatabaseDuplicator.send(:public, :schema_loaded?)
-        ARDatabaseDuplicator.send(:public, :singleton?)
-        ARDatabaseDuplicator.send(:public, :block_required?)
+        #ARDatabaseDuplicator.send(:public, :already_duplicated?)
+        #ARDatabaseDuplicator.send(:public, :schema_loaded?)
+        #ARDatabaseDuplicator.send(:public, :singleton?)
+        #ARDatabaseDuplicator.send(:public, :block_required?)
         ARDatabaseDuplicator.send(:public, :use_connection)
         ARDatabaseDuplicator.send(:public, :use_spec)
         ARDatabaseDuplicator.send(:public, :with_connection)
@@ -141,7 +137,7 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
         remove_duplications
       end
 
-      context "replace" do
+      context "#replace" do
         setup do
           @db.stubs(:replace_with)
         end
@@ -180,6 +176,7 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
 
         should "set iv and salt if the target responds to them for encrypted values" do
           @db = ARDatabaseDuplicator.new
+          @db.silent=true
           first_name = @db.entity.first_name
           object = Object.new
           class << object
@@ -260,6 +257,52 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
           @db.expects(:replace).never()
           @db.replace_attributes(nil, []) { |x| nil }
         end
+      end
+
+      context "#replace_with" do
+
+        def setup
+          @object = Object.new.tap do |o|
+            class << o
+              def first_name
+                @first_name ||= "John"
+              end
+              def first_name=(x)
+                @first_name = x
+              end
+            end
+          end
+        end
+
+        should "use the setter in the target to assign the value" do
+          @db.replace_with(@object, :first_name, "test")
+          assert_equal "test", @object.first_name
+        end
+
+        should "should use the setter in the target to assign the value if the getter returns a blank value" do
+          @object.first_name = ""
+          @db.replace_with(@object, :first_name, "test")
+          assert_equal '', @object.first_name
+        end
+
+        should "evaluate a proc if given as the value" do
+          proc = Proc.new { "Jack" }
+          @db.replace_with(@object, :first_name, proc)
+          assert_equal "Jack", @object.first_name
+        end
+
+        should "pass entity, target, and key to proc depending on arity" do
+          proc0 = Proc.new {}
+          proc1 = Proc.new { |entity| assert_equal @db.entity, entity }
+          proc2 = Proc.new { |entity, target| assert_equal [@db.entity, @object], [entity, target]}
+          proc3 = Proc.new { |entity, target, key| assert_equal [@db.entity, @object, :first_name], [entity, target, key] }
+
+          @db.replace_with(@object, :first_name, proc0)
+          @db.replace_with(@object, :first_name, proc1)
+          @db.replace_with(@object, :first_name, proc2)
+          @db.replace_with(@object, :first_name, proc3)
+        end
+
       end
 
       context "#destination_directory" do

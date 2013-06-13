@@ -2,8 +2,13 @@ $LOAD_PATH << File.join(File.dirname(__FILE__), '..', 'lib')
 require 'ar_database_duplicator'
 require 'test/unit'
 require 'minitest/autorun'
+require 'minitest/reporters'
 require 'shoulda'
 require 'mocha/setup'
+
+MiniTest::Reporters.use!
+
+ActiveRecord::Migration.verbose = false
 
 class Rails
   def self.root
