@@ -194,28 +194,29 @@ class ARDatabaseDuplicator
       # If we have potential duplication to do
       if force || !already_duplicated?(klass)
         # Connect to the source database
-        use_source
-        # Grab a quick count to see if there is anything we need to do.
-        estimated_total = klass.count
-        if estimated_total > 0
-          inform(test ? "Extracting first 1,000 #{plural} for testing" : "Extracting all #{plural}")
-          # Pull in all records. Perhaps later we can enhance this to do it in batches.
-          unless singleton?(klass)
-            records = test ? klass.find(:all, :limit => 1000) : klass.find(:all)
+        with_source do
+          # Grab a quick count to see if there is anything we need to do.
+          estimated_total = klass.count
+          if estimated_total > 0
+            inform(test ? "Extracting first 1,000 #{plural} for testing" : "Extracting all #{plural}")
+            # Pull in all records. Perhaps later we can enhance this to do it in batches.
+            unless singleton?(klass)
+              records = test ? klass.find(:all, :limit => 1000) : klass.find(:all)
+            else
+              records = [klass.instance]
+            end
+
+            # Handle any single table inheritance that may have shown up
+            records.map(&:class).uniq.each { |k| sti_klasses << k if k != klass }
+            sti_klasses.each { |k| set_temporary_vetted_attributes(k, automatic_replacements) }
+
+            # Record the size so we can give some progress indication.
+            inform "#{records.size} #{plural} read"
+
+            transfer(klass, records, automatic_replacements, &block)
           else
-            records = [klass.instance]
+            inform "Skipping #{plural}. No records exist."
           end
-
-          # Handle any single table inheritance that may have shown up
-          records.map(&:class).uniq.each { |k| sti_klasses << k if k != klass }
-          sti_klasses.each { |k| set_temporary_vetted_attributes(k, automatic_replacements) }
-
-          # Record the size so we can give some progress indication.
-          inform "#{records.size} #{plural} read"
-
-          transfer(klass, records, automatic_replacements, &block)
-        else
-          inform "Skipping #{plural}. No records exist."
         end
       else
         inform "Skipping #{plural}. Records already exist."
@@ -313,35 +314,35 @@ class ARDatabaseDuplicator
 
   # Load the schema into the destination database
   def load_schema_combined
-    use_destination
+    with_destination do
+      # If there is no schema or we are forcing things
+      if !schema_loaded?
+        captured_schema = CapturedSchema.new(self, schema_file)
 
-    # If there is no schema or we are forcing things
-    if !schema_loaded?
-      captured_schema = CapturedSchema.new(self, schema_file)
+        # sqlite3 handles index names at the database level and not at the table level.
+        # This can cause issues with adding indexes. Since we wont be depending on them anyway
+        # we will just stub this out so we can load the schema without issues.
+        #schema_klass = ActiveRecord::Schema
+        #
+        #def schema_klass.add_index(*args)
+        #  say_with_time "add_index(#{args.map(&:inspect).join(', ')})" do
+        #    say "skipped", :subitem
+        #  end
+        #end
+        load schema_file
 
-      # sqlite3 handles index names at the database level and not at the table level.
-      # This can cause issues with adding indexes. Since we wont be depending on them anyway
-      # we will just stub this out so we can load the schema without issues.
-      #schema_klass = ActiveRecord::Schema
-      #
-      #def schema_klass.add_index(*args)
-      #  say_with_time "add_index(#{args.map(&:inspect).join(', ')})" do
-      #    say "skipped", :subitem
-      #  end
-      #end
-      load schema_file
-
-      ActiveRecord::Schema.define(:version => captured_schema.recorded_assume_migrated[1]) do
-        create_table "table_schemas", :force => true do |t|
-          t.string "table_name"
-          t.text "schema"
+        ActiveRecord::Schema.define(:version => captured_schema.recorded_assume_migrated[1]) do
+          create_table "table_schemas", :force => true do |t|
+            t.string "table_name"
+            t.text "schema"
+          end
         end
+        captured_schema.table_names.each do |table_name|
+          TableSchema.create(:table_name => table_name, :schema => captured_schema.schema_for(table_name))
+        end
+      else
+        inform 'Skipping schema load. Schema already loaded.'
       end
-      captured_schema.table_names.each do |table_name|
-        TableSchema.create(:table_name => table_name, :schema => captured_schema.schema_for(table_name))
-      end
-    else
-      inform 'Skipping schema load. Schema already loaded.'
     end
   end
 
@@ -354,29 +355,30 @@ class ARDatabaseDuplicator
     captured_schema.table_names.sort.each do |table_name|
       if !schema_loaded?(table_name)
         no_schema_loaded = false
-        use_destination(table_name)
-        commands = captured_schema.table_commands_for(table_name)
+        with_destination(table_name) do
+          commands = captured_schema.table_commands_for(table_name)
 
-        ActiveRecord::Schema.define(:version => captured_schema.recorded_assume_migrated[1]) do
-          commands.each do |command|
-            command = command.dup
+          ActiveRecord::Schema.define(:version => captured_schema.recorded_assume_migrated[1]) do
+            commands.each do |command|
+              command = command.dup
+              block = command.pop
+              self.send(*command, &block)
+            end
+            create_table "table_schemas", :force => true do |t|
+              t.string "table_name"
+              t.text "schema"
+            end
+
+            command = captured_schema.recorded_initialize_schema.dup
             block = command.pop
-            self.send(*command, &block)
-          end
-          create_table "table_schemas", :force => true do |t|
-            t.string "table_name"
-            t.text "schema"
-          end
+            self.send(*command, &block) unless command.empty?
 
-          command = captured_schema.recorded_initialize_schema.dup
-          block = command.pop
-          self.send(*command, &block) unless command.empty?
-
-          command = captured_schema.recorded_assume_migrated.dup
-          block = command.pop
-          self.send(*command, &block) unless command.empty?
+            command = captured_schema.recorded_assume_migrated.dup
+            block = command.pop
+            self.send(*command, &block) unless command.empty?
+          end
+          TableSchema.create(:table_name => table_name, :schema => captured_schema.schema_for(table_name))
         end
-        TableSchema.create(:table_name => table_name, :schema => captured_schema.schema_for(table_name))
       end
     end
 
@@ -591,9 +593,8 @@ class ARDatabaseDuplicator
     if force
       false
     else
-      while_silent { use_destination(subname) }
       define_class('SchemaMigration')
-      SchemaMigration.table_exists? && SchemaMigration.count > 0
+      with_destination(subname, true) { SchemaMigration.table_exists? && SchemaMigration.count > 0 }
     end
   end
 
