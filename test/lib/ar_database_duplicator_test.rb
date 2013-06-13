@@ -58,7 +58,14 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
         assert @db.split_data
       end
 
-      #TODO: tests for load_duplication
+      context "#load_duplication" do
+        should "not allow for production as a source" do
+          @db.source = 'Production'
+          assert_raises(ArgumentError) do
+            @db.load_duplication('User')
+          end
+        end
+      end
 
       should "ensure SchemaMigration is defined" do
         @db.stubs(:load_schema_split)

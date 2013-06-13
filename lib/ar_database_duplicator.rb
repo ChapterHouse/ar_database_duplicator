@@ -140,7 +140,7 @@ class ARDatabaseDuplicator
   end
 
   def destination=(new_value)
-    raise ArgumentError, "Production is not an allowed destination." if new_value.downcase == "production"
+    raise ArgumentError, "Production is not an allowed duplication destination." if new_value.downcase == "production"
     @destination_directory_exists = false
     @destination = new_value
   end
@@ -151,15 +151,11 @@ class ARDatabaseDuplicator
   end
 
   def load_duplication(klass)
+    raise ArgumentError, "Production must be duplicated, not loaded from." if source.downcase == "production"
     klass = define_class(klass) unless klass.is_a?(Class)
-
-    records = with_destination(klass) { klass.all }
-
+    records = with_source(klass) { klass.all }
     puts "#{records.size} #{plural(klass)} read."
-
-    self.destination = 'test'
     klass.without_field_vetting { transfer(klass, records) }
-
   end
 
   def load_schema
