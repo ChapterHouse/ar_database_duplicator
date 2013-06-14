@@ -99,7 +99,80 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
         assert(Something < ActiveRecord::Base)
       end
 
-      #TODO: tests for duplicate
+      context "#duplicate" do
+
+        setup do
+          Dir.chdir(Rails.root)
+          @db = ARDatabaseDuplicator.new(:schema_file => "db/sample_schema.rb", :source => Rails.root + "db/duplication/test_source", :destination => "test_destination")
+          @db.silent=true # Turn this to false if investigating issues
+          @db.with_source { load @db.schema_file }
+
+          @db.define_class("User")
+          @db.define_class("ZipCode")
+
+          @db.with_source do
+            3.times { |i| User.create(:name => "User #{i}", :login => "user_#{i}", :phone_number => "111-2222", :work_number => "111-2222", :label => "whatever", :zip_code => "12345") }
+            3.times { |i| ZipCode.create(:zip => ('%.6i' % i).to_s) }
+          end
+        end
+
+        should "duplicate the records from source to destination with anonymization" do
+          users = @db.with_source { User.all }
+          zips = @db.with_source { ZipCode.all }
+
+          assert_not_equal [], users, "No users found to test with."
+          assert_not_equal [], zips, "No zip codes found to test with."
+
+          @db.load_schema
+
+
+
+          zip_fields = ["zip", "city", "state", "latitude", "longitude"]
+          zip_fields.each { |field| ZipCode.mark_attribute_safe field }
+
+          @db.duplicate(ZipCode)
+          zips2 = @db.with_destination(ZipCode) { ZipCode.all }
+          assert_equal zips.size, zips2.size, "Missing zip codes after duplication"
+          assert_equal zips, zips2, "Data corruption when duplicating zip codes."
+
+
+          user_fields = ["crypted_password", "salt", "remember_token", "remember_token_expires_at",
+                         "session_timeout", "login", "first_name", "last_name", "activation_code", "activated_at",
+                         "agree_to_terms", "facebook_id", "timezone", "token", "address_line_1", "address_line_2",
+                         "city", "state", "country", "birth_year", "gender"]
+          user_fields.each { |field| User.mark_attribute_safe field }
+
+          @db.duplicate(User, {:name => :full_name,
+                               :email => :email_address,
+                               :phone_number => :phone_number
+                              }, {
+                               :work_number => :phone_number,
+                               :label => lambda { rand(1234).to_s }
+                              }) do |random|
+            hash = {}
+            hash[:zip_code] = random.zip_code
+            hash
+          end
+
+          users2 = @db.with_destination(User) { User.all }
+          assert_equal users.size, users2.size, "Missing users after duplication"
+
+          users.each_with_index do |user, i|
+            user2 = users2[i]
+            assert_not_equal user.name, user2.name, "User name was not replaced" if user.name
+            assert_not_equal user.email, user2.email, "User email was not replaced" if user.email
+            assert_not_equal user.phone_number, user2.phone_number, "User phone_number was not replaced" if user.phone_number
+            assert_not_equal user.work_number, user2.work_number, "User work_number was not replaced" if user.work_number
+            assert_not_equal user.label, user2.label, "User name was not replaced" if user.label
+            assert_not_equal user.zip_code, user2.zip_code, "User zip_code was not replaced" if user.zip_code
+
+            assert_equal user.login, user2.login, "User login was corrupted during duplication"
+            assert_not_equal user2.phone_number, user2.work_number, "Duplication did not create different phone and work numbers."
+          end
+
+        end
+
+      end
 
       should "call with_connection using source in with_source" do
         @db.expects("with_connection").with(@db.source, "subname", true)
@@ -126,15 +199,6 @@ class ARDatabaseDuplicatorTest < Test::Unit::TestCase
         ARDatabaseDuplicator.send(:public, :replace_attributes)
         ARDatabaseDuplicator.send(:public, :replace)
         ARDatabaseDuplicator.send(:public, :replace_with)
-        #ARDatabaseDuplicator.send(:public, :set_temporary_vetted_attributes)
-        #ARDatabaseDuplicator.send(:public, :transfer)
-        #ARDatabaseDuplicator.send(:public, :already_duplicated?)
-        #ARDatabaseDuplicator.send(:public, :schema_loaded?)
-        #ARDatabaseDuplicator.send(:public, :singleton?)
-        #ARDatabaseDuplicator.send(:public, :block_required?)
-        ARDatabaseDuplicator.send(:public, :use_connection)
-        #ARDatabaseDuplicator.send(:public, :use_spec)
-        #ARDatabaseDuplicator.send(:public, :with_connection)
 
         ARDatabaseDuplicator.send(:public, :base_path)
         ARDatabaseDuplicator.send(:public, :entity)

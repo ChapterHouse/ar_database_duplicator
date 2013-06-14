@@ -628,22 +628,25 @@ class ARDatabaseDuplicator
     else # Otherwise we are going to use a sqlite3 database specified at runtime
          # Convert from a class to the table name if needed.
       subname = subname.table_name if subname.is_a?(Class) && subname < ActiveRecord::Base
-      # Start with the location the sqlite data will be
-      database = destination_directory
-      # If we are splitting the data into individual tables
-      if split_data
-        # Add the subname to the path if one is given
-        unless subname.blank?
-          database += subname
+      if name == destination
+        # Start with the location the sqlite data will be
+        database = destination_directory
+        # If we are splitting the data into individual tables
+        if split_data
+          # Add the subname to the path if one is given
+          unless subname.blank?
+            database += subname
+          else
+            # Move up one directory level and add a sqlite3 extension to avoid name collision.
+            database = database.parent + "#{destination}.sqlite3"
+          end
         else
-          # Move up one directory level and add a sqlite3 extension to avoid name collision.
-          database = database.parent + "#{destination}.sqlite3"
+          # Add a sqlite3 extension to avoid name collisions.
+          database += "#{destination}.sqlite3"
         end
       else
-        # Add a sqlite3 extension to avoid name collisions.
-        database += "#{destination}.sqlite3"
+        database = Pathname(name.to_s)
       end
-
       # Create the database spec
       spec = {:adapter => 'sqlite3',:database => database.to_s, :host => 'localhost', :username => 'root'}
       # Set the name to something nice for display

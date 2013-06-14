@@ -19,6 +19,7 @@ ActiveRecord::Schema.define(:version => 20100610212120) do
     t.boolean  "agree_to_terms",                 :default => false,  :null => false
     t.string   "zip_code"
     t.string   "phone_number"
+    t.string   "work_number"
     t.string   "facebook_id"
     t.integer  "timezone"
     t.string   "token"
